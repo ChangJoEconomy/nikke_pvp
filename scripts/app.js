@@ -10,6 +10,7 @@
   const PLUS_MATCH_THRESHOLD = 0.86;
   const TIMELINE_MAX_FRAME = 600;
   const TIMELINE_DISPLAY_MAX_FRAME = 400;
+  const RL_FRAME_UNIT = 76;
   const BURST_START_DELAY = 24;
   const BURST_CHAIN_DELAY = 32;
   const FULL_BURST_ENERGY = 100;
@@ -1042,6 +1043,7 @@
 
   function renderBurstTimelineHtml(model) {
     return `
+      ${renderBurstReadySummary(model)}
       <section class="burst-chart" aria-label="버스트 충전 그래프">
         <div class="burst-chart-head">
           <h3>버스트 충전 타임라인</h3>
@@ -1051,6 +1053,22 @@
           ${renderBurstTimelineSvg(model)}
         </div>
       </section>
+    `;
+  }
+
+  function renderBurstReadySummary(model) {
+    if (model.readyFrame === null) {
+      return `
+        <div class="burst-ready-summary">
+          <strong>--RL</strong>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="burst-ready-summary">
+        <strong>${formatRlValue(model.readyFrame)}RL</strong>
+      </div>
     `;
   }
 
@@ -1066,7 +1084,7 @@
 
   function renderBurstTimelineSvg(model) {
     const width = 1160;
-    const left = 118;
+    const left = 106;
     const right = 58;
     const top = 32;
     const rowTop = 56;
@@ -1110,7 +1128,10 @@
           <text x="${x(marker.frame)}" y="18" class="burst-key-label" text-anchor="middle">${escapeHtml(marker.label)}</text>
         `).join("")}
         ${renderBurstStageBar(burstMarkers, { x, left, right, width, y: burstTrackY })}
-        <text x="10" y="${rowTop - 12}" class="burst-row-header">충전량</text>
+        <text x="8" y="${rowTop - 20}" class="burst-row-header">
+          <tspan x="8" dy="0">버스트</tspan>
+          <tspan x="8" dy="12">충전량</tspan>
+        </text>
         ${model.rows.map((row, index) => renderBurstTimelineRow(row, index, { x, rowY, left, width, right, maxFrame })).join("")}
         <g class="burst-hover-layer" style="display: none;">
           <line class="burst-hover-line" x1="${left}" x2="${left}" y1="${top}" y2="${top + plotHeight}"></line>
@@ -1182,7 +1203,7 @@
     if (!hoverLayer || !hoverLine || !hoverDot || !hoverBox || !hoverFrame || !hoverValue) return;
 
     const viewBox = svg.viewBox.baseVal;
-    const left = 118;
+    const left = 106;
     const right = 58;
     const top = 32;
     const bottom = 24;
@@ -1248,7 +1269,7 @@
           <circle cx="82" cy="${y}" r="17"></circle>
         </clipPath>
       </defs>
-      <text x="10" y="${y + 4}" class="burst-row-percent">${formatNumber(row.totalPercent)}%</text>
+      <text x="10" y="${y + 4}" class="burst-row-percent">${formatPercentOneDecimal(row.totalPercent)}%</text>
       <circle cx="82" cy="${y}" r="18" fill="#f8fafc" stroke="${row.color}" stroke-width="2"></circle>
       <image href="${escapeHtml(row.path)}" x="64" y="${y - 22}" width="36" height="48" preserveAspectRatio="xMidYMin slice" clip-path="url(#${clipId})"></image>
       ${row.events.filter((event) => event.frame <= scale.maxFrame).map((event) => `
@@ -1309,6 +1330,14 @@
 
   function formatNumber(value) {
     return Number(value.toFixed(4)).toString();
+  }
+
+  function formatPercentOneDecimal(value) {
+    return Number(value.toFixed(1)).toString();
+  }
+
+  function formatRlValue(frame) {
+    return Number((frame / RL_FRAME_UNIT).toFixed(1)).toString();
   }
 
   function findGlobalCharacter(entry, plusDetected = false) {

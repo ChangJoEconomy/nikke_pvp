@@ -279,6 +279,24 @@ p {
   margin-top: 14px;
 }
 
+.burst-ready-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.burst-ready-summary strong {
+  color: #17202a;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 900;
+}
+
 .burst-chart {
   border: 1px solid var(--line);
   border-radius: 8px;
