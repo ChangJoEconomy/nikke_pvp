@@ -9,6 +9,7 @@
   const PLUS_TEMPLATE_PATH = "./data/plus.png";
   const PLUS_MATCH_THRESHOLD = 0.86;
   const TIMELINE_MAX_FRAME = 600;
+  const TIMELINE_DISPLAY_MAX_FRAME = 400;
   const BURST_START_DELAY = 24;
   const BURST_CHAIN_DELAY = 32;
   const FULL_BURST_ENERGY = 100;
@@ -77,6 +78,7 @@
     pasteZone: document.getElementById("pasteZone"),
     fileInput: document.getElementById("fileInput"),
     canvas: document.getElementById("previewCanvas"),
+    canvasWrap: document.querySelector(".canvas-wrap"),
     emptyPreview: document.getElementById("emptyPreview"),
     recognized: document.getElementById("recognizedCharacters"),
     timeline: document.getElementById("burstTimeline"),
@@ -90,6 +92,7 @@
   let nikkeDataState = "loading";
   let plusTemplatePromise = null;
   let plusTemplate = null;
+  let burstGaugeBackgroundVisible = true;
 
   function setStatus(text) {
     if (!elements.status) return;
@@ -173,6 +176,7 @@
 
     elements.canvas.width = width;
     elements.canvas.height = height;
+    elements.canvasWrap?.classList.add("has-image");
     ctx.clearRect(0, 0, width, height);
     ctx.drawImage(image, 0, 0, width, height);
     elements.emptyPreview.style.display = "none";
@@ -901,7 +905,7 @@
     if (!detected) return "";
     return `
       <div class="recognized-plus-icon" aria-label="플러스 감지">
-        <img src="./data/plus.png" alt="+">
+        <img src="./img_src/plus/plus.png" alt="+">
       </div>
     `;
   }
@@ -958,6 +962,7 @@
 
     const model = buildBurstTimelineModel(rows);
     elements.timeline.innerHTML = renderBurstTimelineHtml(model);
+    attachBurstGaugeToggle();
     attachBurstTimelineHover(model);
   }
 
@@ -1040,7 +1045,7 @@
       <section class="burst-chart" aria-label="버스트 충전 그래프">
         <div class="burst-chart-head">
           <h3>버스트 충전 타임라인</h3>
-          ${renderBurstEventChips(model)}
+          ${renderBurstGaugeToggle()}
         </div>
         <div class="burst-chart-scroll">
           ${renderBurstTimelineSvg(model)}
@@ -1049,58 +1054,54 @@
     `;
   }
 
-  function renderBurstEventChips(model) {
-    const events = [
-      { label: "Ready", frame: model.readyFrame },
-      { label: "B1", frame: model.burst1Frame },
-      { label: "B2", frame: model.burst2Frame },
-      { label: "B3", frame: model.burst3Frame }
-    ];
-
+  function renderBurstGaugeToggle() {
     return `
-      <div class="burst-event-chips">
-        ${events.map((event) => `
-          <span class="burst-event-chip ${event.frame === null ? "is-empty" : ""}">
-            ${event.label} ${event.frame === null ? "--" : `${event.frame}F`}
-          </span>
-        `).join("")}
-      </div>
+      <label class="burst-gauge-toggle">
+        <input type="checkbox" ${burstGaugeBackgroundVisible ? "checked" : ""}>
+        <span class="burst-gauge-toggle-track" aria-hidden="true"></span>
+        <span>배경 그래프</span>
+      </label>
     `;
   }
 
   function renderBurstTimelineSvg(model) {
     const width = 1160;
-    const left = 162;
-    const right = 24;
-    const top = 44;
-    const rowTop = 84;
+    const left = 118;
+    const right = 58;
+    const top = 32;
+    const rowTop = 56;
     const rowHeight = 48;
-    const plotHeight = Math.max(260, rowTop - top + model.rows.length * rowHeight);
-    const bottom = 38;
+    const visibleRowCount = Math.max(model.rows.length, SLOT_COUNT);
+    const stageGap = 18;
+    const stageSpace = 56;
+    const plotHeight = rowTop - top + visibleRowCount * rowHeight + stageSpace;
+    const bottom = 24;
     const height = top + plotHeight + bottom;
+    const maxFrame = TIMELINE_DISPLAY_MAX_FRAME;
     const plotWidth = width - left - right;
-    const x = (frame) => left + (frame / TIMELINE_MAX_FRAME) * plotWidth;
+    const x = (frame) => left + (frame / maxFrame) * plotWidth;
     const yGauge = (value) => top + plotHeight - (clamp(value, 0, FULL_BURST_ENERGY) / FULL_BURST_ENERGY) * plotHeight;
     const rowY = (index) => rowTop + index * rowHeight + rowHeight / 2;
-    const gaugePaths = buildGaugeSvgPaths(model.gaugePoints, x, yGauge);
+    const gaugePaths = buildGaugeSvgPaths(cropGaugePoints(model.gaugePoints, maxFrame), x, yGauge, maxFrame);
     const burstMarkers = [
       { frame: model.readyFrame, label: "Ready", color: "#38bdf8" },
       { frame: model.burst1Frame, label: "B1", color: "#22c55e" },
       { frame: model.burst2Frame, label: "B2", color: "#a78bfa" },
       { frame: model.burst3Frame, label: "B3", color: "#f97316" }
-    ].filter((marker) => marker.frame !== null && marker.frame <= TIMELINE_MAX_FRAME);
+    ].filter((marker) => marker.frame !== null && marker.frame <= maxFrame);
+    const burstTrackY = rowTop + visibleRowCount * rowHeight + stageGap;
 
     return `
       <svg class="burst-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="버스트 충전 타임라인">
         <rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#202326"></rect>
         <rect x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}" fill="#222426"></rect>
-        <path d="${gaugePaths.fill}" fill="rgba(239, 68, 68, 0.18)"></path>
-        <path d="${gaugePaths.line}" fill="none" stroke="#ff453d" stroke-width="2.2"></path>
+        <path d="${gaugePaths.fill}" class="burst-gauge-fill ${burstGaugeBackgroundVisible ? "" : "is-hidden"}"></path>
+        <path d="${gaugePaths.line}" class="burst-gauge-line ${burstGaugeBackgroundVisible ? "" : "is-hidden"}"></path>
         ${[0, 50, 100].map((value) => `
           <line x1="${left}" x2="${width - right}" y1="${yGauge(value)}" y2="${yGauge(value)}" class="burst-grid-line"></line>
-          <text x="${left - 8}" y="${yGauge(value) + 4}" class="burst-axis-label" text-anchor="end">${value}%</text>
+          <text x="${width - right + 8}" y="${yGauge(value) + 4}" class="burst-axis-label" text-anchor="start">${value}%</text>
         `).join("")}
-        ${range(0, TIMELINE_MAX_FRAME, 50).map((frame) => `
+        ${range(0, maxFrame, 50).map((frame) => `
           <line x1="${x(frame)}" x2="${x(frame)}" y1="${top}" y2="${top + plotHeight}" class="burst-frame-line"></line>
           <text x="${x(frame)}" y="${height - 12}" class="burst-axis-label" text-anchor="middle">${frame}</text>
         `).join("")}
@@ -1108,12 +1109,9 @@
           <line x1="${x(marker.frame)}" x2="${x(marker.frame)}" y1="${top - 2}" y2="${top + plotHeight}" class="burst-key-line ${marker.className}"></line>
           <text x="${x(marker.frame)}" y="18" class="burst-key-label" text-anchor="middle">${escapeHtml(marker.label)}</text>
         `).join("")}
-        ${burstMarkers.map((marker, index) => `
-          <line x1="${x(marker.frame)}" x2="${x(marker.frame)}" y1="${top - 2}" y2="${top + plotHeight}" stroke="${marker.color}" stroke-width="2"></line>
-          <text x="${x(marker.frame) + 4}" y="${32 + index * 13}" fill="${marker.color}" class="burst-special-label">${marker.label} ${marker.frame}F</text>
-        `).join("")}
-        <text x="50" y="${rowTop - 12}" class="burst-row-header">충전량</text>
-        ${model.rows.map((row, index) => renderBurstTimelineRow(row, index, { x, rowY, left, width, right })).join("")}
+        ${renderBurstStageBar(burstMarkers, { x, left, right, width, y: burstTrackY })}
+        <text x="10" y="${rowTop - 12}" class="burst-row-header">충전량</text>
+        ${model.rows.map((row, index) => renderBurstTimelineRow(row, index, { x, rowY, left, width, right, maxFrame })).join("")}
         <g class="burst-hover-layer" style="display: none;">
           <line class="burst-hover-line" x1="${left}" x2="${left}" y1="${top}" y2="${top + plotHeight}"></line>
           <circle class="burst-hover-dot" cx="${left}" cy="${yGauge(0)}" r="4"></circle>
@@ -1124,6 +1122,50 @@
         <rect class="burst-hover-capture" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}"></rect>
         <text x="${left + plotWidth / 2}" y="${height - 2}" class="burst-axis-label" text-anchor="middle">Time (F)</text>
       </svg>
+    `;
+  }
+
+  function attachBurstGaugeToggle() {
+    const toggle = elements.timeline?.querySelector(".burst-gauge-toggle input");
+    const svg = elements.timeline?.querySelector(".burst-svg");
+    if (!toggle || !svg) return;
+
+    toggle.addEventListener("change", () => {
+      burstGaugeBackgroundVisible = toggle.checked;
+      svg.querySelectorAll(".burst-gauge-fill, .burst-gauge-line").forEach((path) => {
+        path.classList.toggle("is-hidden", !burstGaugeBackgroundVisible);
+      });
+    });
+  }
+
+  function renderBurstStageBar(markers, scale) {
+    if (!markers.length) return "";
+
+    const ready = markers[0];
+    const points = markers.map((marker) => ({
+      ...marker,
+      x: scale.x(marker.frame)
+    }));
+    const labelOffsets = [-8, 15, -8, 15];
+    const segments = [
+      `<line x1="${scale.left}" x2="${points[0].x}" y1="${scale.y}" y2="${scale.y}" class="burst-stage-line"></line>`
+    ];
+
+    points.slice(0, -1).forEach((point, index) => {
+      const next = points[index + 1];
+      segments.push(`<line x1="${point.x}" x2="${next.x}" y1="${scale.y}" y2="${scale.y}" class="burst-stage-line is-chain"></line>`);
+    });
+
+    return `
+      <g class="burst-stage-bar" aria-label="버스트 단계">
+        <line x1="${scale.left}" x2="${scale.width - scale.right}" y1="${scale.y}" y2="${scale.y}" class="burst-stage-backdrop"></line>
+        ${segments.join("")}
+        ${points.map((point, index) => `
+          <circle cx="${point.x}" cy="${scale.y}" r="5" fill="${point.color}" stroke="#202326" stroke-width="2"></circle>
+          <text x="${point.x}" y="${scale.y + labelOffsets[index]}" fill="${point.color}" class="burst-stage-label" text-anchor="middle">${point.label} ${point.frame}F</text>
+        `).join("")}
+        <line x1="${ready.x}" x2="${ready.x}" y1="${scale.y - 8}" y2="${scale.y + 8}" class="burst-stage-ready-stop"></line>
+      </g>
     `;
   }
 
@@ -1140,15 +1182,16 @@
     if (!hoverLayer || !hoverLine || !hoverDot || !hoverBox || !hoverFrame || !hoverValue) return;
 
     const viewBox = svg.viewBox.baseVal;
-    const left = 162;
-    const right = 24;
-    const top = 44;
-    const bottom = 38;
+    const left = 118;
+    const right = 58;
+    const top = 32;
+    const bottom = 24;
+    const maxFrame = TIMELINE_DISPLAY_MAX_FRAME;
     const plotWidth = viewBox.width - left - right;
     const plotHeight = viewBox.height - top - bottom;
     const maxX = left + plotWidth;
     const maxY = top + plotHeight;
-    const xFromFrame = (frame) => left + (frame / TIMELINE_MAX_FRAME) * plotWidth;
+    const xFromFrame = (frame) => left + (frame / maxFrame) * plotWidth;
     const yFromGauge = (value) => top + plotHeight - (clamp(value, 0, FULL_BURST_ENERGY) / FULL_BURST_ENERGY) * plotHeight;
     const gaugeAtFrame = (frame) => {
       let gauge = 0;
@@ -1170,7 +1213,7 @@
         return;
       }
 
-      const frame = clamp(Math.round(((svgX - left) / plotWidth) * TIMELINE_MAX_FRAME), 0, TIMELINE_MAX_FRAME);
+      const frame = clamp(Math.round(((svgX - left) / plotWidth) * maxFrame), 0, maxFrame);
       const gauge = gaugeAtFrame(frame);
       const x = xFromFrame(frame);
       const y = yFromGauge(gauge);
@@ -1202,13 +1245,13 @@
       <line x1="${scale.left}" x2="${scale.width - scale.right}" y1="${y}" y2="${y}" stroke="${row.color}" stroke-width="1.5" opacity="0.9"></line>
       <defs>
         <clipPath id="${clipId}">
-          <circle cx="24" cy="${y}" r="17"></circle>
+          <circle cx="82" cy="${y}" r="17"></circle>
         </clipPath>
       </defs>
-      <circle cx="24" cy="${y}" r="18" fill="#f8fafc" stroke="${row.color}" stroke-width="2"></circle>
-      <image href="${escapeHtml(row.path)}" x="6" y="${y - 22}" width="36" height="48" preserveAspectRatio="xMidYMin slice" clip-path="url(#${clipId})"></image>
-      <text x="50" y="${y + 4}" class="burst-row-percent">${formatNumber(row.totalPercent)}%</text>
-      ${row.events.map((event) => `
+      <text x="10" y="${y + 4}" class="burst-row-percent">${formatNumber(row.totalPercent)}%</text>
+      <circle cx="82" cy="${y}" r="18" fill="#f8fafc" stroke="${row.color}" stroke-width="2"></circle>
+      <image href="${escapeHtml(row.path)}" x="64" y="${y - 22}" width="36" height="48" preserveAspectRatio="xMidYMin slice" clip-path="url(#${clipId})"></image>
+      ${row.events.filter((event) => event.frame <= scale.maxFrame).map((event) => `
         <circle cx="${scale.x(event.frame)}" cy="${y}" r="3.2" fill="${row.color}" stroke="#202326" stroke-width="1">
           <title>${escapeHtml(row.name)} ${event.frame}F ${formatNumber(event.percent)}%</title>
         </circle>
@@ -1216,7 +1259,34 @@
     `;
   }
 
-  function buildGaugeSvgPaths(points, x, yGauge) {
+  function cropGaugePoints(points, maxFrame) {
+    if (!points.length) return [{ frame: 0, gauge: 0 }, { frame: maxFrame, gauge: 0 }];
+
+    const cropped = [];
+    let previous = points[0];
+
+    points.forEach((point) => {
+      if (point.frame <= maxFrame) {
+        cropped.push(point);
+        previous = point;
+      }
+    });
+
+    if (cropped.length === 0 || cropped[0].frame > 0) {
+      cropped.unshift({ frame: 0, gauge: 0 });
+    }
+
+    const last = cropped[cropped.length - 1];
+    if (last.frame < maxFrame) {
+      cropped.push({ frame: maxFrame, gauge: last.gauge });
+    } else if (last.frame > maxFrame) {
+      cropped[cropped.length - 1] = { frame: maxFrame, gauge: previous.gauge };
+    }
+
+    return cropped;
+  }
+
+  function buildGaugeSvgPaths(points, x, yGauge, maxFrame) {
     let line = `M ${x(0)} ${yGauge(0)}`;
     let fill = `M ${x(0)} ${yGauge(0)}`;
     let previous = points[0] || { frame: 0, gauge: 0 };
@@ -1227,7 +1297,7 @@
       previous = point;
     });
 
-    fill += ` L ${x(TIMELINE_MAX_FRAME)} ${yGauge(0)} L ${x(0)} ${yGauge(0)} Z`;
+    fill += ` L ${x(maxFrame)} ${yGauge(0)} L ${x(0)} ${yGauge(0)} Z`;
     return { line, fill };
   }
 
@@ -1392,7 +1462,7 @@
   elements.pasteZone.addEventListener("blur", () => elements.pasteZone.classList.remove("is-active"));
   elements.fileInput.addEventListener("change", (event) => handleImageFile(event.target.files[0]));
   if (elements.recognized) {
-    elements.recognized.innerHTML = `<div class="empty-results">data/nikke_data.json 로딩 중입니다.</div>`;
+    elements.recognized.innerHTML = `<div class="empty-results">data 로딩 중입니다.</div>`;
   }
   loadNikkeData();
 })();
