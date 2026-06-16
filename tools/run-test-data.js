@@ -6,8 +6,8 @@ const { execFileSync } = require("child_process");
 const ROOT = path.resolve(__dirname, "..");
 const DATASET_DIR = path.join(ROOT, "test_data_set");
 const ANSWER_PATH = path.join(DATASET_DIR, "answer.txt");
-const APP_PATH = path.join(ROOT, "app.js");
-const CHARACTERS_PATH = path.join(ROOT, "characters.js");
+const APP_PATH = path.join(ROOT, "scripts", "app.js");
+const CHARACTERS_PATH = path.join(ROOT, "data", "characters.js");
 const MAX_PROCESS_WIDTH = 1400;
 
 function main() {

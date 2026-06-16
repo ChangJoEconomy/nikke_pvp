@@ -5,7 +5,7 @@ const { execFileSync } = require("child_process");
 const ROOT = path.resolve(__dirname, "..");
 const ASSET_ROOT = path.join(ROOT, "character_img");
 const CSV_PATH = path.join(ASSET_ROOT, "metadata.csv");
-const OUT_PATH = path.join(ROOT, "characters.js");
+const OUT_PATH = path.join(ROOT, "data", "characters.js");
 const FEATURE_SIZE = 16;
 const REFERENCE_ROI_VARIANTS = [
   {
@@ -71,6 +71,7 @@ function main() {
     ""
   ].join("\n");
 
+  fs.mkdirSync(path.dirname(OUT_PATH), { recursive: true });
   fs.writeFileSync(OUT_PATH, body, "utf8");
   console.log(`wrote ${entries.length} entries to ${path.relative(ROOT, OUT_PATH)}`);
 }

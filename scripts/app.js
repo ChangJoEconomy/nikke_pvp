@@ -6,30 +6,21 @@
   const FEATURE_SIZE = 16;
   const TEMPLATE_CANDIDATE_COUNT = 48;
   const MATCH_RESULT_COUNT = 5;
-  const PLUS_TEMPLATE_PATH = "./plus.png";
+  const PLUS_TEMPLATE_PATH = "./data/plus.png";
   const PLUS_MATCH_THRESHOLD = 0.86;
   const TIMELINE_MAX_FRAME = 600;
   const BURST_START_DELAY = 24;
   const BURST_CHAIN_DELAY = 32;
-  const FULL_BURST_ENERGY = 10000;
-  const ENERGY_PER_PERCENT = 100;
+  const FULL_BURST_ENERGY = 100;
   const TIMELINE_KEY_MARKERS = [
     { frame: 76, label: "1RL", className: "rl" },
-    { frame: 96, label: "Rosanna", className: "rosanna" },
     { frame: 152, label: "2RL", className: "rl" },
-    { frame: 196, label: "Stun", className: "stun" },
     { frame: 228, label: "3RL", className: "rl" },
     { frame: 304, label: "4RL", className: "rl" },
     { frame: 380, label: "5RL", className: "rl" },
     { frame: 456, label: "6RL", className: "rl" }
   ];
   const TIMELINE_COLORS = ["#4fd1c5", "#ff7688", "#8b5cf6", "#f59e0b", "#22c55e"];
-  const ATTACK_TIMING_OVERRIDES = {
-    "helm plus": { start: 60, step: 76 },
-    "centi": { start: 76, step: 76 },
-    "cinderella": { start: 70, step: 22 },
-    "scarlet black shadow": { start: 23, step: 46 }
-  };
   const WEAPON_ICON_BY_CODE = {
     1: "sg",
     2: "rl",
@@ -172,7 +163,7 @@
   async function analyzeImage(image) {
     if (!Array.isArray(window.CHARACTERS) || window.CHARACTERS.length === 0) {
       setStatus("manifest 없음");
-      showEmptyResults("characters.js에 캐릭터 descriptor가 없습니다. tools/generate-manifest.js를 먼저 실행하세요.");
+      showEmptyResults("data/characters.js에 캐릭터 descriptor가 없습니다. tools/generate-manifest.js를 먼저 실행하세요.");
       return;
     }
 
@@ -248,7 +239,7 @@
         resolve(plusTemplate);
       };
       image.onerror = () => {
-        console.warn("plus.png를 읽지 못해 + 캐릭터 감지를 건너뜁니다.");
+        console.warn("data/plus.png를 읽지 못해 + 캐릭터 감지를 건너뜁니다.");
         resolve(null);
       };
       image.src = PLUS_TEMPLATE_PATH;
@@ -885,7 +876,7 @@
     if (nikkeDataState === "error") {
       elements.recognized.insertAdjacentHTML(
         "beforeend",
-        `<div class="empty-results">nikke_data.json을 읽지 못했습니다. 로컬 서버에서 실행 중인지 확인하세요.</div>`
+        `<div class="empty-results">data/nikke_data.json을 읽지 못했습니다. 로컬 서버에서 실행 중인지 확인하세요.</div>`
       );
     }
 
@@ -910,7 +901,7 @@
     if (!detected) return "";
     return `
       <div class="recognized-plus-icon" aria-label="플러스 감지">
-        <img src="./img_src/plus/plus.png" alt="+">
+        <img src="./data/plus.png" alt="+">
       </div>
     `;
   }
@@ -933,7 +924,7 @@
     }
 
     if (!Array.isArray(nikkeGlobalData) || nikkeGlobalData.length === 0) {
-      elements.timeline.innerHTML = `<div class="empty-results">버스트 충전 그래프를 계산하려면 nikke_data.json이 필요합니다.</div>`;
+      elements.timeline.innerHTML = `<div class="empty-results">버스트 충전 그래프를 계산하려면 data/nikke_data.json이 필요합니다.</div>`;
       return;
     }
 
@@ -942,8 +933,6 @@
       if (!best) return null;
       const data = findGlobalCharacter(best.entry, slot.plusIcon?.detected);
       if (!data) return null;
-      const energy = burstEnergyPerEvent(data, index + 1);
-      const frames = attackFramesForCharacter(data, TIMELINE_MAX_FRAME);
       return {
         index,
         slot,
@@ -952,14 +941,8 @@
         name: data?.name?.ko || data?.name?.en || best.entry.character,
         path: best.entry.path,
         color: TIMELINE_COLORS[index % TIMELINE_COLORS.length],
-        energy,
-        percent: energyToPercent(energy),
-        frames,
-        events: frames.map((frame) => ({
-          frame,
-          energy,
-          percent: energyToPercent(energy)
-        }))
+        events: [],
+        totalPercent: 0
       };
     }).filter(Boolean);
 
@@ -968,94 +951,51 @@
       return;
     }
 
-    elements.timeline.innerHTML = renderBurstTimelineHtml(buildBurstTimelineModel(rows));
-  }
-
-  function burstEnergyPerEvent(data, targetPos) {
-    const baseEnergy = baseEnergyForCharacter(data);
-    return baseEnergy * hitCountForCharacter(data, targetPos) * eventMultiplierForCharacter(data);
-  }
-
-  function baseEnergyForCharacter(data) {
-    return numeric(data?.baseChargeRate, 0) * ENERGY_PER_PERCENT;
-  }
-
-  function energyToPercent(energy) {
-    return energy / ENERGY_PER_PERCENT;
-  }
-
-  function hitCountForCharacter(data, targetPos) {
-    const weapon = Number(data?.weapon || 0);
-    if (weapon === 1) return Math.max(1, Math.round(numeric(data?.hitsPerCharacter, 10)));
-    if (weapon === 2) return rlHitCount(targetPos);
-    return Math.max(1, Math.round(numeric(data?.hitsPerCharacter, 1)));
-  }
-
-  function eventMultiplierForCharacter(data) {
-    const weapon = Number(data?.weapon || 0);
-    if (weapon === 1 || weapon === 2) return 1;
-    return numeric(data?.chargeMultiplier, 1);
-  }
-
-  function rlHitCount(targetPos, coverAlive = [true, true, true, true, true], nikkeAlive = [true, true, true, true, true]) {
-    const pos = clamp(Math.round(numeric(targetPos, 3)), 1, 5);
-    const splash = pos === 1
-      ? [1, 2]
-      : pos === 5
-        ? [4, 5]
-        : [pos - 1, pos, pos + 1];
-
-    return splash.reduce((hits, splashPos) => {
-      const index = splashPos - 1;
-      return hits + (nikkeAlive[index] ? 1 : 0) + (coverAlive[index] ? 1 : 0);
-    }, 0);
-  }
-
-  function attackFramesForCharacter(data, maxFrame) {
-    const timing = attackTimingForCharacter(data);
-    const frames = [];
-    if (!timing || timing.step <= 0) return frames;
-    for (let frame = timing.start; frame <= maxFrame; frame += timing.step) {
-      frames.push(Math.round(frame));
+    if (!window.NikkeChargeCore) {
+      elements.timeline.innerHTML = `<div class="empty-results">nikke_charge_core.js를 읽지 못해 버스트 충전을 계산할 수 없습니다.</div>`;
+      return;
     }
-    return Array.from(new Set(frames));
-  }
 
-  function attackTimingForCharacter(data) {
-    const key = normalizeLookupName(data?.name?.en);
-    if (ATTACK_TIMING_OVERRIDES[key]) return ATTACK_TIMING_OVERRIDES[key];
-
-    const interval = Math.max(1, Math.round(numeric(data?.attackInterval, 60)));
-    const weapon = Number(data?.weapon || 0);
-    if (interval <= 6 || weapon === 5 || weapon === 6) return { start: 0, step: interval };
-    if (weapon === 1 && interval === 42) return { start: 0, step: interval };
-    if (interval === 42) return { start: interval, step: interval };
-    if (weapon === 2 && interval === 60) return { start: 76, step: 76 };
-    if (weapon === 3 && interval === 60) return { start: 60, step: 76 };
-    return { start: interval, step: interval };
+    const model = buildBurstTimelineModel(rows);
+    elements.timeline.innerHTML = renderBurstTimelineHtml(model);
+    attachBurstTimelineHover(model);
   }
 
   function buildBurstTimelineModel(rows) {
-    const attackEvents = rows.flatMap((row) => row.events.map((event) => ({
-      ...event,
-      row,
-    }))).sort((a, b) => a.frame - b.frame || a.row.index - b.row.index);
+    const core = window.NikkeChargeCore;
+    const characters = Array.from({ length: SLOT_COUNT }, (_, index) => {
+      const row = rows.find((item) => item.index === index);
+      return row ? row.data : null;
+    });
+    const team = core.makeTeam(characters, { teamType: "attack" });
+    const summary = core.summarizeTeam(team, null, TIMELINE_MAX_FRAME, FULL_BURST_ENERGY);
+    const eventsBySource = new Map();
 
-    let gauge = 0;
-    let thresholdFrame = null;
-    const gaugePoints = [{ frame: 0, gauge: 0 }];
-    const grouped = new Map();
-    attackEvents.forEach((event) => {
-      if (!grouped.has(event.frame)) grouped.set(event.frame, []);
-      grouped.get(event.frame).push(event);
+    summary.events.forEach((event) => {
+      const sourceIndex = Number(event.sourcePosition);
+      if (!eventsBySource.has(sourceIndex)) eventsBySource.set(sourceIndex, []);
+      eventsBySource.get(sourceIndex).push({
+        frame: event.frame,
+        percent: event.charge
+      });
     });
 
-    Array.from(grouped.keys()).sort((a, b) => a - b).forEach((frame) => {
-      const nextGauge = grouped.get(frame).reduce((sum, event) => sum + event.energy, gauge);
-      gauge = nextGauge;
-      if (thresholdFrame === null && gauge >= FULL_BURST_ENERGY) thresholdFrame = frame;
-      gaugePoints.push({ frame, gauge: clamp(gauge, 0, FULL_BURST_ENERGY) });
+    rows.forEach((row) => {
+      row.events = (eventsBySource.get(row.index) || []).map((event) => ({
+        ...event,
+        row
+      }));
+      row.totalPercent = 0;
     });
+
+    const attackEvents = rows.flatMap((row) => row.events)
+      .sort((a, b) => a.frame - b.frame || a.row.index - b.row.index);
+    applyBurstFillContribution(attackEvents, rows);
+
+    const gaugePoints = [{ frame: 0, gauge: 0 }].concat(summary.timeline.map((point) => ({
+      frame: point.frame,
+      gauge: clamp(point.totalCharge, 0, FULL_BURST_ENERGY)
+    })));
 
     if (gaugePoints[gaugePoints.length - 1].frame < TIMELINE_MAX_FRAME) {
       gaugePoints.push({
@@ -1064,7 +1004,7 @@
       });
     }
 
-    const readyFrame = thresholdFrame;
+    const readyFrame = summary.burstReadyFrame;
     const burst1Frame = readyFrame === null ? null : readyFrame + BURST_START_DELAY;
     const burst2Frame = burst1Frame === null ? null : burst1Frame + BURST_CHAIN_DELAY;
     const burst3Frame = burst2Frame === null ? null : burst2Frame + BURST_CHAIN_DELAY;
@@ -1073,12 +1013,26 @@
       rows,
       attackEvents,
       gaugePoints,
-      thresholdFrame,
+      thresholdFrame: readyFrame,
       readyFrame,
       burst1Frame,
       burst2Frame,
       burst3Frame
     };
+  }
+
+  function applyBurstFillContribution(events, rows) {
+    rows.forEach((row) => {
+      row.totalPercent = 0;
+    });
+
+    let gauge = 0;
+    events.forEach((event) => {
+      if (gauge >= FULL_BURST_ENERGY) return;
+      const contribution = Math.min(event.percent, FULL_BURST_ENERGY - gauge);
+      gauge += contribution;
+      event.row.totalPercent += contribution;
+    });
   }
 
   function renderBurstTimelineHtml(model) {
@@ -1119,14 +1073,15 @@
     const left = 162;
     const right = 24;
     const top = 44;
+    const rowTop = 84;
     const rowHeight = 48;
-    const plotHeight = Math.max(220, model.rows.length * rowHeight);
+    const plotHeight = Math.max(260, rowTop - top + model.rows.length * rowHeight);
     const bottom = 38;
     const height = top + plotHeight + bottom;
     const plotWidth = width - left - right;
     const x = (frame) => left + (frame / TIMELINE_MAX_FRAME) * plotWidth;
     const yGauge = (value) => top + plotHeight - (clamp(value, 0, FULL_BURST_ENERGY) / FULL_BURST_ENERGY) * plotHeight;
-    const rowY = (index) => top + index * rowHeight + rowHeight / 2;
+    const rowY = (index) => rowTop + index * rowHeight + rowHeight / 2;
     const gaugePaths = buildGaugeSvgPaths(model.gaugePoints, x, yGauge);
     const burstMarkers = [
       { frame: model.readyFrame, label: "Ready", color: "#38bdf8" },
@@ -1142,8 +1097,8 @@
         <path d="${gaugePaths.fill}" fill="rgba(239, 68, 68, 0.18)"></path>
         <path d="${gaugePaths.line}" fill="none" stroke="#ff453d" stroke-width="2.2"></path>
         ${[0, 50, 100].map((value) => `
-          <line x1="${left}" x2="${width - right}" y1="${yGauge(value * ENERGY_PER_PERCENT)}" y2="${yGauge(value * ENERGY_PER_PERCENT)}" class="burst-grid-line"></line>
-          <text x="${left - 8}" y="${yGauge(value * ENERGY_PER_PERCENT) + 4}" class="burst-axis-label" text-anchor="end">${value}%</text>
+          <line x1="${left}" x2="${width - right}" y1="${yGauge(value)}" y2="${yGauge(value)}" class="burst-grid-line"></line>
+          <text x="${left - 8}" y="${yGauge(value) + 4}" class="burst-axis-label" text-anchor="end">${value}%</text>
         `).join("")}
         ${range(0, TIMELINE_MAX_FRAME, 50).map((frame) => `
           <line x1="${x(frame)}" x2="${x(frame)}" y1="${top}" y2="${top + plotHeight}" class="burst-frame-line"></line>
@@ -1157,10 +1112,87 @@
           <line x1="${x(marker.frame)}" x2="${x(marker.frame)}" y1="${top - 2}" y2="${top + plotHeight}" stroke="${marker.color}" stroke-width="2"></line>
           <text x="${x(marker.frame) + 4}" y="${32 + index * 13}" fill="${marker.color}" class="burst-special-label">${marker.label} ${marker.frame}F</text>
         `).join("")}
+        <text x="50" y="${rowTop - 12}" class="burst-row-header">충전량</text>
         ${model.rows.map((row, index) => renderBurstTimelineRow(row, index, { x, rowY, left, width, right })).join("")}
+        <g class="burst-hover-layer" style="display: none;">
+          <line class="burst-hover-line" x1="${left}" x2="${left}" y1="${top}" y2="${top + plotHeight}"></line>
+          <circle class="burst-hover-dot" cx="${left}" cy="${yGauge(0)}" r="4"></circle>
+          <rect class="burst-hover-box" x="${left + 8}" y="${top + 8}" width="92" height="34" rx="5"></rect>
+          <text class="burst-hover-frame" x="${left + 16}" y="${top + 22}">0F</text>
+          <text class="burst-hover-value" x="${left + 16}" y="${top + 36}">0%</text>
+        </g>
+        <rect class="burst-hover-capture" x="${left}" y="${top}" width="${plotWidth}" height="${plotHeight}"></rect>
         <text x="${left + plotWidth / 2}" y="${height - 2}" class="burst-axis-label" text-anchor="middle">Time (F)</text>
       </svg>
     `;
+  }
+
+  function attachBurstTimelineHover(model) {
+    const svg = elements.timeline?.querySelector(".burst-svg");
+    if (!svg) return;
+
+    const hoverLayer = svg.querySelector(".burst-hover-layer");
+    const hoverLine = svg.querySelector(".burst-hover-line");
+    const hoverDot = svg.querySelector(".burst-hover-dot");
+    const hoverBox = svg.querySelector(".burst-hover-box");
+    const hoverFrame = svg.querySelector(".burst-hover-frame");
+    const hoverValue = svg.querySelector(".burst-hover-value");
+    if (!hoverLayer || !hoverLine || !hoverDot || !hoverBox || !hoverFrame || !hoverValue) return;
+
+    const viewBox = svg.viewBox.baseVal;
+    const left = 162;
+    const right = 24;
+    const top = 44;
+    const bottom = 38;
+    const plotWidth = viewBox.width - left - right;
+    const plotHeight = viewBox.height - top - bottom;
+    const maxX = left + plotWidth;
+    const maxY = top + plotHeight;
+    const xFromFrame = (frame) => left + (frame / TIMELINE_MAX_FRAME) * plotWidth;
+    const yFromGauge = (value) => top + plotHeight - (clamp(value, 0, FULL_BURST_ENERGY) / FULL_BURST_ENERGY) * plotHeight;
+    const gaugeAtFrame = (frame) => {
+      let gauge = 0;
+      model.gaugePoints.forEach((point) => {
+        if (point.frame <= frame) gauge = point.gauge;
+      });
+      return gauge;
+    };
+    const hide = () => {
+      hoverLayer.style.display = "none";
+    };
+
+    svg.addEventListener("mousemove", (event) => {
+      const rect = svg.getBoundingClientRect();
+      const svgX = ((event.clientX - rect.left) / rect.width) * viewBox.width;
+      const svgY = ((event.clientY - rect.top) / rect.height) * viewBox.height;
+      if (svgX < left || svgX > maxX || svgY < top || svgY > maxY) {
+        hide();
+        return;
+      }
+
+      const frame = clamp(Math.round(((svgX - left) / plotWidth) * TIMELINE_MAX_FRAME), 0, TIMELINE_MAX_FRAME);
+      const gauge = gaugeAtFrame(frame);
+      const x = xFromFrame(frame);
+      const y = yFromGauge(gauge);
+      const boxX = clamp(x + 10, left + 4, maxX - 96);
+      const boxY = clamp(y - 42, top + 4, maxY - 38);
+
+      hoverLayer.style.display = "";
+      hoverLine.setAttribute("x1", x);
+      hoverLine.setAttribute("x2", x);
+      hoverDot.setAttribute("cx", x);
+      hoverDot.setAttribute("cy", y);
+      hoverBox.setAttribute("x", boxX);
+      hoverBox.setAttribute("y", boxY);
+      hoverFrame.setAttribute("x", boxX + 8);
+      hoverFrame.setAttribute("y", boxY + 14);
+      hoverFrame.textContent = `${frame}F`;
+      hoverValue.setAttribute("x", boxX + 8);
+      hoverValue.setAttribute("y", boxY + 28);
+      hoverValue.textContent = `${formatNumber(gauge)}%`;
+    });
+
+    svg.addEventListener("mouseleave", hide);
   }
 
   function renderBurstTimelineRow(row, index, scale) {
@@ -1175,11 +1207,10 @@
       </defs>
       <circle cx="24" cy="${y}" r="18" fill="#f8fafc" stroke="${row.color}" stroke-width="2"></circle>
       <image href="${escapeHtml(row.path)}" x="6" y="${y - 22}" width="36" height="48" preserveAspectRatio="xMidYMin slice" clip-path="url(#${clipId})"></image>
-      <text x="50" y="${y - 3}" class="burst-row-name">${escapeHtml(row.name)}</text>
-      <text x="50" y="${y + 13}" class="burst-row-sub">+${formatNumber(row.percent)}% / event</text>
+      <text x="50" y="${y + 4}" class="burst-row-percent">${formatNumber(row.totalPercent)}%</text>
       ${row.events.map((event) => `
         <circle cx="${scale.x(event.frame)}" cy="${y}" r="3.2" fill="${row.color}" stroke="#202326" stroke-width="1">
-          <title>${escapeHtml(row.name)} ${event.frame}F +${formatNumber(event.percent)}%</title>
+          <title>${escapeHtml(row.name)} ${event.frame}F ${formatNumber(event.percent)}%</title>
         </circle>
       `).join("")}
     `;
@@ -1204,11 +1235,6 @@
     const out = [];
     for (let value = start; value <= end; value += step) out.push(value);
     return out;
-  }
-
-  function numeric(value, fallback) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : fallback;
   }
 
   function formatNumber(value) {
@@ -1250,10 +1276,10 @@
   function missingGlobalDataMessage(entry, plusDetected = false) {
     const target = `${entry.character} / ${entry.skin}`;
     if (nikkeDataState !== "ready" || !Array.isArray(nikkeGlobalData) || nikkeGlobalData.length === 0) {
-      return `nikke_data.json을 아직 읽지 못함\n검색 대상: ${target}`;
+      return `data/nikke_data.json을 아직 읽지 못함\n검색 대상: ${target}`;
     }
     const mode = plusDetected ? " + 감지 우선" : "기본";
-    return `nikke_data.json의 global에서 찾지 못함\n검색 대상: ${target}\n검색 모드: ${mode}`;
+    return `data/nikke_data.json의 global에서 찾지 못함\n검색 대상: ${target}\n검색 모드: ${mode}`;
   }
 
   function buildGlobalNameCandidates(entry, plusDetected = false) {
@@ -1347,8 +1373,8 @@
         return;
       }
 
-      const response = await fetch("./nikke_data.json", { cache: "no-store" });
-      if (!response.ok) throw new Error(`nikke_data.json ${response.status}`);
+      const response = await fetch("./data/nikke_data.json", { cache: "no-store" });
+      if (!response.ok) throw new Error(`data/nikke_data.json ${response.status}`);
       const data = await response.json();
       nikkeGlobalData = Array.isArray(data.global) ? data.global : [];
       nikkeDataState = "ready";
@@ -1366,7 +1392,7 @@
   elements.pasteZone.addEventListener("blur", () => elements.pasteZone.classList.remove("is-active"));
   elements.fileInput.addEventListener("change", (event) => handleImageFile(event.target.files[0]));
   if (elements.recognized) {
-    elements.recognized.innerHTML = `<div class="empty-results">nikke_data.json 로딩 중입니다.</div>`;
+    elements.recognized.innerHTML = `<div class="empty-results">data/nikke_data.json 로딩 중입니다.</div>`;
   }
   loadNikkeData();
 })();
