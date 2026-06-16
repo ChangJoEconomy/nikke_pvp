@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NIKKE 5슬롯 캐릭터 인식</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <h1>NIKKE 5슬롯 캐릭터 인식</h1>
+          <p>5개 카드가 한 줄로 들어간 이미지를 붙여넣어 슬롯별 캐릭터를 찾습니다.</p>
+        </div>
+        <label class="file-button">
+          <input id="fileInput" type="file" accept="image/*">
+          이미지 선택
+        </label>
+      </header>
+
+      <section id="pasteZone" class="paste-zone" tabindex="0" aria-label="이미지 붙여넣기 영역">
+        <div class="paste-copy">
+          <strong>여기를 클릭하고 Ctrl+V</strong>
+          <span>클립보드 이미지 또는 파일을 넣으면 바로 분석합니다.</span>
+        </div>
+      </section>
+
+      <section class="preview-panel" aria-label="분석 미리보기">
+        <div class="canvas-wrap">
+          <canvas id="previewCanvas"></canvas>
+          <div id="emptyPreview" class="empty-preview">아직 입력된 이미지가 없습니다.</div>
+        </div>
+      </section>
+
+      <section class="recognized-panel" aria-label="인식 캐릭터 요약">
+        <h2>인식 캐릭터</h2>
+        <div id="recognizedCharacters" class="recognized-grid">
+          <div class="empty-results">분석 후 캐릭터 일러스트와 한글 이름이 표시됩니다.</div>
+        </div>
+        <div id="burstTimeline" class="burst-timeline"></div>
+      </section>
+    </section>
+
+  </main>
+
+  <script src="./characters.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

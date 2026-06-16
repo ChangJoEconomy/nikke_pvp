@@ -1,0 +1,194 @@
+# NIKKE 캐릭터 인식 알고리즘 정리
+
+## 개요
+
+이 앱은 5개의 NIKKE 캐릭터 카드가 가로로 배치된 스크린샷을 입력받아, 각 슬롯의 캐릭터를 인식합니다.
+
+현재 매칭 알고리즘은 `feature-map-v1`입니다. 기존의 perceptual hash, 단순 벡터 비교, 색상 히스토그램 기반 매칭 코드는 제거했습니다.
+
+## 전체 인식 흐름
+
+1. `app.js`에서 붙여넣기 또는 파일 선택으로 이미지를 읽습니다.
+2. 입력 이미지에서 5개 카드 슬롯을 탐지합니다.
+3. 각 카드에서 캐릭터 일러스트가 들어있는 내부 영역을 추정합니다.
+4. 카드 내부 영역을 `feature-map-v1` descriptor로 변환합니다.
+5. `characters.js`에 들어있는 모든 캐릭터 descriptor와 비교합니다.
+6. 각 슬롯 왼쪽 아이콘 영역에서 `+` 아이콘 여부를 감지합니다.
+7. 각 슬롯별 상위 후보를 표시하고, `nikke_data.json`의 `global` 데이터에서 세부 정보를 찾습니다.
+
+## 카드 탐지
+
+카드 탐지는 입력 이미지의 전경 색상 변화와 edge 활동량을 이용합니다.
+
+정확히 5개의 카드 후보를 찾지 못하면, 활성 영역을 가로로 5등분하는 fallback 방식을 사용합니다. 현재 `test_data_set`의 샘플들은 이 fallback 경로를 타지만, 새 매칭 알고리즘은 해당 데이터셋에서 정상적으로 정답을 찾습니다.
+
+각 카드에는 추가로 `art` 영역이 계산됩니다. 이 영역은 카드 프레임, 레벨 숫자, 별, 하단 이름판 같은 UI 요소를 최대한 제외하고 캐릭터 일러스트 중심부를 잡기 위한 영역입니다.
+
+## Feature Map Descriptor
+
+각 descriptor는 다음 구조를 가집니다.
+
+```js
+{
+  version: "feature-map-v1",
+  parts: {
+    portrait: { size, l, rg, yb, e, a },
+    upper: { size, l, rg, yb, e, a },
+    face: { size, l, rg, yb, e, a }
+  }
+}
+```
+
+각 part는 `16 x 16` 그리드로 샘플링됩니다.
+
+- `l`: 밝기, 즉 luma 채널
+- `rg`: red-green 색차 채널
+- `yb`: yellow-blue 색차 채널
+- `e`: luma 기반 edge magnitude map
+- `a`: alpha mask 또는 coverage mask
+
+레퍼런스 descriptor는 투명 배경 MI 캐릭터 이미지에서 생성합니다. 입력 descriptor는 탐지된 카드 내부 일러스트 영역에서 생성합니다.
+
+## 매칭 알고리즘
+
+매칭은 2단계로 진행됩니다.
+
+1. 빠른 후보 추림
+   - `upper`, `face` 영역을 offset 없이 빠르게 비교합니다.
+   - 상위 `48`개 후보만 남깁니다.
+
+2. 정밀 템플릿 비교
+   - `portrait`, `upper`, `face` 영역을 모두 비교합니다.
+   - crop 위치 차이를 흡수하기 위해 중앙, 좌우, 상하, 대각선 방향의 작은 shift를 테스트합니다.
+   - alpha mask를 이용해 투명 배경이나 빈 영역의 영향은 줄이고, 실제 캐릭터가 있는 영역을 중심으로 비교합니다.
+
+최종 점수 가중치:
+
+```text
+portrait: 24%
+upper:    34%
+face:     42%
+```
+
+각 part 내부 점수 가중치:
+
+```text
+luma 상관도:       34%
+edge 유사도:       28%
+red-green 색차:    14%
+yellow-blue 색차:  14%
+alpha coverage:    10%
+```
+
+이 구조는 약간의 crop 오차를 허용하면서도 얼굴과 상체 구조를 더 중요하게 보도록 설계했습니다.
+
+## `+` 캐릭터 데이터 검색
+
+캐릭터 일러스트 매칭과 `nikke_data.json` 데이터 검색은 분리해서 처리합니다.
+
+- 캐릭터 일러스트와 스킨 표시는 `characters.js`에서 인식된 결과를 그대로 사용합니다.
+- 카드 왼쪽 아이콘 영역에 `plus.png`와 같은 `+` 아이콘이 감지되면, `nikke_data.json`의 `global`에서 `Helm +`, `Viper +`처럼 이름이 `+`로 끝나는 항목을 우선 검색합니다. 플러스 항목을 찾지 못하면 `+` 오탐을 감안해 기본 이름으로 한 번 더 검색합니다.
+- `+` 아이콘이 감지되지 않으면 `Helm`, `Viper`처럼 `+`가 없는 일반 항목만 검색합니다.
+- 이름 비교 시 `+`는 `plus` 토큰으로 보존합니다. 따라서 `Helm`과 `Helm +`가 같은 이름으로 취급되지 않습니다.
+
+예시:
+
+```text
+Helm + 아이콘 없음 -> Helm
+Helm + 아이콘 있음 -> Helm +
+Viper + 아이콘 없음 -> Viper
+Viper + 아이콘 있음 -> Viper +
+```
+
+## 생성 파일
+
+`characters.js`는 생성 파일입니다.
+
+생성 명령:
+
+```powershell
+node tools\generate-manifest.js
+```
+
+`characters.js`를 직접 수정하지 말고, 원본 이미지와 `metadata.csv`를 수정한 뒤 다시 생성해야 합니다.
+
+## 새 캐릭터 추가 방법
+
+1. 캐릭터 이미지 파일을 추가합니다.
+
+권장 경로:
+
+```text
+character_img/NewName/NewName_MI.png
+```
+
+가능하면 투명 배경의 MI 캐릭터 이미지를 사용합니다.
+
+2. `character_img/metadata.csv`에 행을 추가합니다.
+
+기존 CSV 형식을 그대로 사용합니다.
+
+```csv
+character,skin,filename,url,local_path,mime,size,timestamp
+NewName,default,NewName_MI.png,...,nikke_mi_cards\NewName\NewName_MI.png,image/png,...
+```
+
+스킨이 다른 경우에는 `character`는 동일하게 유지하고, `skin`과 `filename`만 다르게 넣습니다.
+
+3. `characters.js`를 다시 생성합니다.
+
+```powershell
+node tools\generate-manifest.js
+```
+
+4. 테스트를 실행합니다.
+
+```powershell
+node tools\run-test-data.js
+```
+
+새 테스트 스크린샷을 추가했다면 기대값도 같이 추가합니다.
+
+```text
+test_data_set/answer.txt
+```
+
+## 테스트 데이터 형식
+
+테스트 이미지는 다음 폴더에 둡니다.
+
+```text
+test_data_set/
+```
+
+정답 파일:
+
+```text
+test_data_set/answer.txt
+```
+
+형식:
+
+```text
+[1]
+1-1: Character / Skin
+1-2: Character / Skin
+1-3: Character / Skin
+1-4: Character / Skin
+1-5: Character / Skin
+```
+
+테스트 러너는 top-1, top-3, top-5 정확도를 출력합니다.
+
+현재 제공된 테스트 데이터셋 결과:
+
+```text
+total: 15
+top1: 15/15 (100.0%)
+top3: 15/15 (100.0%)
+top5: 15/15 (100.0%)
+```
+
+## 알려진 개선점
+
+현재 카드 탐지는 종종 equal split fallback을 사용합니다. 제공된 스크린샷에서는 새 매칭 알고리즘이 잘 동작하지만, 카드 간격이나 crop, 배경이 크게 다른 이미지까지 안정적으로 처리하려면 카드 탐지 로직을 더 개선하는 것이 좋습니다.
