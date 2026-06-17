@@ -95,6 +95,14 @@
   let plusTemplate = null;
   let burstGaugeBackgroundVisible = true;
 
+  function getSlotPlusEnabled(slot) {
+    if (!slot) return false;
+    if (typeof slot.plusEnabled !== "boolean") {
+      slot.plusEnabled = Boolean(slot.plusIcon?.detected);
+    }
+    return slot.plusEnabled;
+  }
+
   function setStatus(text) {
     if (!elements.status) return;
     elements.status.textContent = text;
@@ -863,20 +871,25 @@
         `;
       }
 
-      const data = findGlobalCharacter(best.entry, slot.plusIcon?.detected);
+      const plusEnabled = getSlotPlusEnabled(slot);
+      const hasFavoriteItem = hasPlusGlobalCharacter(best.entry);
+      const data = findGlobalCharacter(best.entry, hasFavoriteItem && plusEnabled);
       const koName = data?.name?.ko || data?.name?.en || best.entry.character;
 
       return `
         <article class="recognized-card" tabindex="0">
           <div class="recognized-image">
             <img src="${escapeHtml(best.entry.path)}" alt="${escapeHtml(koName)}">
-            ${renderDetectedPlusIcon(slot.plusIcon?.detected)}
+            ${renderDetectedPlusIcon(hasFavoriteItem && plusEnabled)}
             ${renderAttributeIcons(data)}
           </div>
           <div class="recognized-name">${escapeHtml(koName)}</div>
+          ${renderFavoriteItemToggle(slot, hasFavoriteItem, plusEnabled)}
         </article>
       `;
     }).join("");
+
+    attachFavoriteItemToggles(slots);
 
     if (nikkeDataState === "error") {
       elements.recognized.insertAdjacentHTML(
@@ -886,6 +899,29 @@
     }
 
     renderBurstTimeline(slots);
+  }
+
+  function renderFavoriteItemToggle(slot, hasFavoriteItem, checked) {
+    if (!hasFavoriteItem) return "";
+    return `
+      <label class="favorite-item-toggle">
+        <span>애장품</span>
+        <input type="checkbox" data-slot-index="${slot.index}" ${checked ? "checked" : ""}>
+        <span class="favorite-item-toggle-track" aria-hidden="true"></span>
+      </label>
+    `;
+  }
+
+  function attachFavoriteItemToggles(slots) {
+    elements.recognized.querySelectorAll(".favorite-item-toggle input").forEach((input) => {
+      input.addEventListener("change", () => {
+        const slotIndex = Number(input.dataset.slotIndex);
+        const slot = slots.find((item) => item.index === slotIndex);
+        if (!slot) return;
+        slot.plusEnabled = input.checked;
+        renderRecognizedCharacters(slots);
+      });
+    });
   }
 
   function renderAttributeIcons(data) {
@@ -936,7 +972,8 @@
     const rows = slots.map((slot, index) => {
       const best = slot.matches[0];
       if (!best) return null;
-      const data = findGlobalCharacter(best.entry, slot.plusIcon?.detected);
+      const plusEnabled = getSlotPlusEnabled(slot);
+      const data = findGlobalCharacter(best.entry, plusEnabled && hasPlusGlobalCharacter(best.entry));
       if (!data) return null;
       return {
         index,
@@ -1345,6 +1382,10 @@
     const preferred = findGlobalCharacterByMode(entry, Boolean(plusDetected));
     if (preferred) return preferred;
     return plusDetected ? findGlobalCharacterByMode(entry, false) : null;
+  }
+
+  function hasPlusGlobalCharacter(entry) {
+    return Boolean(findGlobalCharacterByMode(entry, true));
   }
 
   function findGlobalCharacterByMode(entry, plusDetected) {

@@ -245,6 +245,63 @@ p {
   overflow-wrap: anywhere;
 }
 
+.favorite-item-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 28px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  user-select: none;
+}
+
+.favorite-item-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.favorite-item-toggle-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: #c8d2dc;
+  transition: background 120ms ease;
+}
+
+.favorite-item-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(23, 32, 42, 0.2);
+  transition: transform 120ms ease;
+}
+
+.favorite-item-toggle input:checked + .favorite-item-toggle-track {
+  background: var(--accent);
+}
+
+.favorite-item-toggle input:checked + .favorite-item-toggle-track::after {
+  transform: translateX(16px);
+}
+
+.favorite-item-toggle input:focus-visible + .favorite-item-toggle-track {
+  box-shadow: 0 0 0 3px rgba(15, 143, 135, 0.18);
+}
+
 .recognized-icons {
   position: absolute;
   top: 50%;
